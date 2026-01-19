@@ -1,127 +1,104 @@
 
 # GenSight-Issue-Insight-Automator
 
-GenSight-Issue-Insight-Automator is a Python-based analytics and automation tool designed to process IT issue tracker files (daily sheets, weekly logs, or monthly consolidated sheets). It automatically generates insights, summaries, visualizations, and AI-driven analysis for faster decision-making.
+GenSight-Issue-Insight-Automator is a Python-based analytics tool designed specifically to process **monthly IT issue tracker sheets**. It analyzes Excel files where each sheet represents one month (e.g., `DEC2025`, `JAN2026`) and generates:
 
-This tool can be used for **any internal IT project**, **client support project**, or **technology operations team**.
+- Monthly issue insights
+- Engineer workload summaries
+- Issue-type categorization
+- Trend visualizations
+- AI-generated monthly summaries
 
----
-
-## 🔧 What the Tool Does
-
-- Reads Excel issue tracker files (daily or monthly formats)
-- Normalizes and structures issue records
-- Categorizes issues (Compliance, MFA, Citrix, Network, Access, etc.)
-- Generates:
-  - Daily issue breakdown
-  - Monthly summaries
-  - Engineer workload insights
-  - Issue frequency & patterns
-- Creates visual charts (PNG output)
-- Produces AI-generated natural‑language summaries
-- Works across multiple teams or multiple projects
+This tool is ideal for IT support teams who maintain **monthly consolidated logs**.
 
 ---
 
-## 📂 Supported Input Formats
+## 📂 Supported Input Format (Monthly Only)
 
-### **1. Daily Sheets**
-Example:
-- `01-01-2026`
-- `10-12-2025`
-- `5-1-2026`
+### ✔ Monthly Sheets  
+Your Excel file should contain one or more sheets named as:
 
-Each sheet represents one day's tickets.
-
-### **2. Monthly Sheets**
-Example:
 - `DEC2025`
 - `JAN2026`
 - `FEB2026`
+- etc.
 
-Each sheet contains all issues for the month.
+Each monthly sheet contains all issues handled during that month.
 
-### **Required Columns**
-Your Excel file must include the following fields (in any IT project context):
+### ✔ Required Columns
 
 | Column | Description |
 |--------|-------------|
-| Project Name | Any internal or client project |
-| Engineer Name | Engineer who handled the issue |
+| Project Name | Name of the project (can be any project) |
+| Engineer Name | Person handling the issue |
 | Associate/Employee ID | Internal or client employee ID |
-| Associate/Employee Name | User reporting the issue |
-| Issue Description | Problem summary |
+| Associate/Employee Name | End-user name |
+| Issue Description | Summary of issue |
 | Start Date & Time | DD/MM/YYYY |
 | End Date & Time | DD/MM/YYYY |
 | Status | Open / Closed |
-| Request / Ticket ID | Ticket reference (INC, RITM, REQ, etc.) |
+| Request / Ticket ID | INC / RITM / REQ / Internal |
 | Remarks | Resolution details |
 
 ---
 
-## 🧠 Architecture Overview
+## 🧠 How the Tool Works (Monthly‑Only Pipeline)
 
-### **1. Data Loader (`data_loader.py`)**
-- Detects sheet type (daily or monthly)
-- Parses Excel sheets into a unified DataFrame
-- Converts dates and normalizes strings
-- Adds:
+### **1. Data Loading (`data_loader.py`)**
+- Reads monthly sheets only  
+- Identifies month + year from sheet names  
+- Parses dates  
+- Normalizes and cleans data  
+- Returns a unified DataFrame with columns like:
   - `month`
   - `year`
-  - `date`
-
-Works flexibly across multiple projects.
+  - `date` (derived from Start Date)
 
 ---
 
-### **2. Aggregation Engine (`aggregator.py`)**
-Generates:
+### **2. Monthly Aggregation (`aggregator.py`)**
+Generates monthly insights such as:
 
-- Daily and monthly issue counts  
-- Issue type distribution  
-- Project-wise breakdown  
+- Total issues per month  
+- Issue-type distribution  
 - Engineer workload  
-- Recurring issue patterns  
-- Cross-month comparisons  
-- Open vs Closed analysis  
+- Daily patterns inside the month  
+- Open vs Closed summary  
+- Cross-month comparison (DEC vs JAN, etc.)
 
 ---
 
-### **3. Visualization Engine (`visualizer.py`)**
+### **3. Visualization (`visualizer.py`)**
+Produces PNG charts:
 
-Outputs charts such as:
-
-- Daily trend line / bar chart  
-- Monthly comparison bar chart  
-- Issue type pie chart  
-- Engineer workload distribution  
-- Heatmaps (optional extension)  
-
-Charts are saved as PNG for easy reporting.
+- Monthly issue comparison  
+- Issue category distribution  
+- Engineer workload chart  
+- Daily issue trend for each month  
 
 ---
 
-### **4. AI Insight Generator (`genai_insights.py`)**
+### **4. AI-Generated Summary (`genai_insights.py`)**
+Creates natural language monthly insights:
 
-Generates natural language summaries using LLMs:
-
-- Issue trends  
-- Root-cause patterns  
-- Highlighted problem areas  
-- Comparison insights across months or projects  
-- Recommended actions  
+- What issues occurred most  
+- Key recurring problems  
+- Engineer performance patterns  
+- Comparison with previous months  
+- Recommendations or observations  
 
 ---
 
-## 🧪 Example Code Usage
+## 🧪 Example Usage
 
 ```python
-from data_loader import load_tracker_file
+from data_loader import load_monthly_tracker
 from aggregator import generate_monthly_summary
 from visualizer import plot_issue_distribution
 from genai_insights import generate_summary_text
 
-df = load_tracker_file("IT_Project_Tracker.xlsx")
+df = load_monthly_tracker("Monthly_Tracker.xlsx")
 summary = generate_monthly_summary(df)
 plot_issue_distribution(summary)
+
 print(generate_summary_text(summary))
