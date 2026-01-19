@@ -4,7 +4,8 @@
 """
 Lightweight, rule-based insights (no external LLM call).
 Generates a readable monthly summary text from the computed counts,
-guaranteeing that counts come from the requested month only.
+guaranteeing that all counts (total, status, issue, engineer) come from the
+requested month only.
 """
 
 from typing import Dict, Any
@@ -19,9 +20,9 @@ def _month_slice(summary: Dict[str, Any], key: str, month_label: str) -> Dict[st
       B) summary[month_label][key] == {item: count}
       C) summary[key] == {item: count}  (already month specific / flat)
     """
-    # A) summary[key][month_label]
     section = summary.get(key)
     if isinstance(section, dict):
+        # A) summary[key][month_label]
         if month_label in section and isinstance(section[month_label], dict):
             return section[month_label]
         # C) If this is already a flat {item: count} map
@@ -37,6 +38,38 @@ def _month_slice(summary: Dict[str, Any], key: str, month_label: str) -> Dict[st
     return {}
 
 
+def _status_counts_from_raw(summary: Dict[str, Any], month_label: str) -> Dict[str, int]:
+    """
+    Recompute monthly status counts from summary['raw'] if available.
+    Case-insensitive mapping for 'Closed' and 'Open' buckets.
+    """
+    raw_df = summary.get("raw")
+    if raw_df is None:
+        return {}
+
+    try:
+        df_m = raw_df[raw_df["month_label"] == month_label].copy()
+        if df_m.empty:
+            return {}
+
+        # Normalize status strings
+        status_series = (
+            df_m.get("status")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .fillna("")
+        )
+
+        closed_count = int((status_series == "closed").sum())
+        open_count = int((status_series == "open").sum())
+
+        # If there are other statuses, you can extend mapping here
+        return {"Closed": closed_count, "Open": open_count}
+    except Exception:
+        return {}
+
+
 def generate_summary_text(summary: Dict[str, Any], month_label: str) -> str:
     """
     Build a concise monthly summary strictly from the month-specific slice.
@@ -49,21 +82,24 @@ def generate_summary_text(summary: Dict[str, Any], month_label: str) -> str:
     """
 
     # Month-specific dictionaries (robust to different summary shapes)
-    by_status_m = _month_slice(summary, "by_status", month_label)
     by_issue_type_m = _month_slice(summary, "by_issue_type", month_label)
     by_engineer_m = _month_slice(summary, "by_engineer", month_label)
 
-    # Compute total issues for the month:
-    # Prefer counting rows from summary["raw"] filtered by month_label if available.
+    # Status: prefer month slice; if missing/empty, recompute from raw
+    by_status_m = _month_slice(summary, "by_status", month_label)
+    if not by_status_m:
+        recomputed = _status_counts_from_raw(summary, month_label)
+        if recomputed:
+            by_status_m = recomputed
+
+    # Compute total:
+    # Prefer counting rows from summary["raw"] filtered by month_label (most accurate).
     total = 0
     raw_df = summary.get("raw")
     if raw_df is not None:
         try:
-            # raw_df is expected to be a pandas DataFrame with month_label column
-            month_rows = raw_df[raw_df["month_label"] == month_label]
-            total = int(len(month_rows))
+            total = int((raw_df["month_label"] == month_label).sum())
         except Exception:
-            # Fallback to sum of issue-type counts if structure is unexpected
             total = int(sum(by_issue_type_m.values())) if by_issue_type_m else 0
     else:
         total = int(sum(by_issue_type_m.values())) if by_issue_type_m else 0
@@ -71,13 +107,8 @@ def generate_summary_text(summary: Dict[str, Any], month_label: str) -> str:
     closed = int(by_status_m.get("Closed", 0))
     open_ = int(by_status_m.get("Open", 0))
 
-    top_issue = None
-    if by_issue_type_m:
-        top_issue = max(by_issue_type_m.items(), key=lambda x: x[1])
-
-    top_engineer = None
-    if by_engineer_m:
-        top_engineer = max(by_engineer_m.items(), key=lambda x: x[1])
+    top_issue = max(by_issue_type_m.items(), key=lambda x: x[1]) if by_issue_type_m else None
+    top_engineer = max(by_engineer_m.items(), key=lambda x: x[1]) if by_engineer_m else None
 
     parts = [
         f"Monthly summary for {month_label}:",
