@@ -124,5 +124,4 @@ from genai_insights import generate_summary_text
 df = load_tracker_file("IT_Project_Tracker.xlsx")
 summary = generate_monthly_summary(df)
 plot_issue_distribution(summary)
-
 print(generate_summary_text(summary))
