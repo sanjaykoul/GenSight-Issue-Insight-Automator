@@ -14,7 +14,7 @@ from src.report_generator import generate_pdf_report, generate_ppt_report
 from src.genai_insights import generate_summary_text
 
 EXCEL_PATH = "EmblemHealth_Monthly_Productivity_Tracker.xlsx"
-LOGO_PATH = None  # e.g., "assets/logo.png"
+LOGO_PATH = None  # e.g., "assets/logo.png" if you have one
 
 print("Loading Excel ...")
 df = load_monthly_tracker(EXCEL_PATH)

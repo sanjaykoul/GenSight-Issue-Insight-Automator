@@ -61,12 +61,13 @@ def _wrap_text(text: str, max_chars: int = 100) -> List[str]:
     lines, cur = [], []
     count = 0
     for w in words:
-        if count + len(w) + (1 if cur else 0) > max_chars:
+        add = len(w) + (1 if cur else 0)
+        if count + add > max_chars:
             lines.append(" ".join(cur))
             cur, count = [w], len(w)
         else:
             cur.append(w)
-            count += len(w) + (1 if cur else 0)
+            count += add
     if cur:
         lines.append(" ".join(cur))
     return lines
@@ -89,7 +90,6 @@ def build_mom_chart_image(summary: Dict, month_label_for_folder: str) -> Optiona
     df = by_month_df.sort_values("month_label").reset_index(drop=True)
     labels = df["month_label"].tolist()
     values = df["issue_count"].tolist()
-
     if not labels:
         return None
 
@@ -129,7 +129,6 @@ def _pdf_cover_page(c: canvas.Canvas,
     if logo_path and os.path.exists(logo_path):
         try:
             img = ImageReader(logo_path)
-            # Keep a modest size to avoid layout issues
             c.drawImage(img, width - 150, height - 110, width=100, height=60, preserveAspectRatio=True, anchor="ne")
         except Exception:
             pass
@@ -200,7 +199,6 @@ def _pdf_charts_pages(c: canvas.Canvas, chart_paths: List[str]):
                 y_img = height - 120
                 charts_on_page = 0
         except Exception:
-            # skip unreadable images
             continue
 
     c.showPage()
@@ -295,12 +293,10 @@ def _ppt_ai_slide(prs: Presentation, ai_text: str):
     tf = slide.placeholders[1].text_frame
     tf.clear()
 
-    # Wrap gently to avoid oversized bullets
     wrapped = _wrap_text(ai_text, max_chars=110) if ai_text else []
     if not wrapped:
         wrapped = ["No AI summary available."]
 
-    # First paragraph
     tf.paragraphs[0].text = wrapped[0]
     tf.paragraphs[0].level = 0
     for line in wrapped[1:]:
@@ -316,7 +312,6 @@ def _ppt_chart_slide(prs: Presentation, image_path: str, title: Optional[str] = 
     try:
         slide.shapes.add_picture(image_path, left, top, height=height)
     except Exception:
-        # ignore missing image
         pass
 
 
@@ -337,7 +332,7 @@ def _ppt_mom_slide(prs: Presentation, summary: Dict, mom_chart_path: Optional[st
             pp.text = f"{row['month_label']}: {row['issue_count']} issues"
             pp.level = 1
 
-    # If we also built a chart image, add a visual slide too
+    # Visual slide for MoM bar chart (if generated)
     if mom_chart_path and os.path.exists(mom_chart_path):
         _ppt_chart_slide(prs, mom_chart_path, title="MoM Issue Volume")
 
