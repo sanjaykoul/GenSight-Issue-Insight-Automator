@@ -2,29 +2,59 @@
 # -*- coding: utf-8 -*-
 # src/genai_insights.py
 """
-Lightweight, rule-based insights (no external LLM call).
-Generates a readable monthly summary text from the computed counts.
+Per-month AI-like summary (rule-based, no external LLM).
+This version filters to the requested month_label BEFORE counting,
+so the numbers reflect that month only.
 """
 
 from typing import Dict
+import pandas as pd
+
+
+def _safe_counts(series: pd.Series) -> dict:
+    if series is None or series.empty:
+        return {}
+    return series.value_counts().to_dict()
+
+
+def _top_item(counts: dict):
+    if not counts:
+        return None
+    return sorted(counts.items(), key=lambda x: x[1], reverse=True)[0]
 
 
 def generate_summary_text(summary: Dict, month_label: str) -> str:
-    by_status = summary.get("by_status", {})
-    by_issue_type = summary.get("by_issue_type", {})
-    by_engineer = summary.get("by_engineer", {})
+    """
+    Build a natural language summary for ONE month (month_label).
+    Uses summary['raw'] (the full DataFrame) and filters down to month_label.
+    """
+    raw = summary.get("raw")
+    if raw is None or raw.empty:
+        return f"No data available for {month_label}."
 
-    total = sum(by_issue_type.values()) if by_issue_type else 0
-    closed = by_status.get("Closed", 0)
-    open_ = by_status.get("Open", 0)
+    # ---- Filter to the requested month
+    sub = raw[raw["month_label"] == month_label].copy()
+    if sub.empty:
+        return f"No data available for {month_label}."
 
-    top_issue = None
-    if by_issue_type:
-        top_issue = sorted(by_issue_type.items(), key=lambda x: x[1], reverse=True)[0]
+    # ---- Normalize common fields
+    status = sub["status"].astype(str).str.strip().str.title() if "status" in sub.columns else pd.Series(dtype=str)
+    engineer = sub["engineer"].astype(str).str.strip() if "engineer" in sub.columns else pd.Series(dtype=str)
+    # 'issue_type' should already exist from aggregator; if not, default to 'Other'
+    if "issue_type" not in sub.columns:
+        sub["issue_type"] = "Other"
 
-    top_engineer = None
-    if by_engineer:
-        top_engineer = sorted(by_engineer.items(), key=lambda x: x[1], reverse=True)[0]
+    # ---- Per-month counts
+    by_status = _safe_counts(status)
+    by_engineer = _safe_counts(engineer)
+    by_issue_type = _safe_counts(sub["issue_type"])
+
+    total = int(sub.shape[0])
+    closed = int(by_status.get("Closed", 0))
+    open_ = int(by_status.get("Open", 0))
+
+    top_issue = _top_item(by_issue_type)
+    top_engineer = _top_item(by_engineer)
 
     parts = [
         f"Monthly summary for {month_label}:",
