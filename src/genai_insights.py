@@ -64,7 +64,7 @@ def _status_counts_from_raw(summary: Dict[str, Any], month_label: str) -> Dict[s
         closed_count = int((status_series == "closed").sum())
         open_count = int((status_series == "open").sum())
 
-        # If there are other statuses, you can extend mapping here
+        # If there are other statuses, extend mapping here as needed.
         return {"Closed": closed_count, "Open": open_count}
     except Exception:
         return {}
@@ -85,12 +85,13 @@ def generate_summary_text(summary: Dict[str, Any], month_label: str) -> str:
     by_issue_type_m = _month_slice(summary, "by_issue_type", month_label)
     by_engineer_m = _month_slice(summary, "by_engineer", month_label)
 
-    # Status: prefer month slice; if missing/empty, recompute from raw
-    by_status_m = _month_slice(summary, "by_status", month_label)
-    if not by_status_m:
-        recomputed = _status_counts_from_raw(summary, month_label)
-        if recomputed:
-            by_status_m = recomputed
+    # 🔒 Status counts: ALWAYS prefer recomputing from 'raw' if available,
+    # to guarantee per-month numbers, even if 'by_status' is a global flat dict.
+    recomputed_status = _status_counts_from_raw(summary, month_label)
+    if recomputed_status:
+        by_status_m = recomputed_status
+    else:
+        by_status_m = _month_slice(summary, "by_status", month_label)
 
     # Compute total:
     # Prefer counting rows from summary["raw"] filtered by month_label (most accurate).
