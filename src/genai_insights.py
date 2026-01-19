@@ -3,98 +3,67 @@
 # src/genai_insights.py
 """
 Lightweight, rule-based insights (no external LLM call).
-Generates a readable monthly summary text from the computed counts,
-guaranteeing that all counts (total, status, issue, engineer) come from the
-requested month only.
+Generates a readable monthly summary text from strictly month-specific counts.
 """
 
 from typing import Dict, Any
 
 
 def _month_slice(summary: Dict[str, Any], key: str, month_label: str) -> Dict[str, int]:
-    """
-    Extract a per-month dictionary like {item: count} from a flexible summary structure.
-
-    Supports:
-      A) summary[key][month_label] == {item: count}
-      B) summary[month_label][key] == {item: count}
-      C) summary[key] == {item: count}  (already month specific / flat)
-    """
     section = summary.get(key)
     if isinstance(section, dict):
-        # A) summary[key][month_label]
         if month_label in section and isinstance(section[month_label], dict):
             return section[month_label]
-        # C) If this is already a flat {item: count} map
         if section and all(isinstance(v, (int, float)) for v in section.values()):
             return section
-
-    # B) summary[month_label][key]
     if month_label in summary and isinstance(summary[month_label], dict):
         inner = summary[month_label].get(key)
         if isinstance(inner, dict):
             return inner
-
     return {}
 
 
 def _status_counts_from_raw(summary: Dict[str, Any], month_label: str) -> Dict[str, int]:
-    """
-    Recompute monthly status counts from summary['raw'] if available.
-    Case-insensitive mapping for 'Closed' and 'Open' buckets.
-    """
     raw_df = summary.get("raw")
     if raw_df is None:
         return {}
-
     try:
         df_m = raw_df[raw_df["month_label"] == month_label].copy()
         if df_m.empty:
             return {}
+        ser = df_m.get("status").astype(str).str.strip().str.lower().fillna("")
+        closed = int((ser == "closed").sum())
+        open_ = int((ser == "open").sum())
+        return {"Closed": closed, "Open": open_}
+    except Exception:
+        return {}
 
-        # Normalize status strings
-        status_series = (
-            df_m.get("status")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .fillna("")
-        )
 
-        closed_count = int((status_series == "closed").sum())
-        open_count = int((status_series == "open").sum())
-
-        # If there are other statuses, extend mapping here as needed.
-        return {"Closed": closed_count, "Open": open_count}
+def _engineer_counts_from_raw(summary: Dict[str, Any], month_label: str) -> Dict[str, int]:
+    raw_df = summary.get("raw")
+    if raw_df is None:
+        return {}
+    try:
+        df_m = raw_df[raw_df["month_label"] == month_label].copy()
+        if df_m.empty:
+            return {}
+        eng = df_m.get("engineer").astype(str).str.strip()
+        return {k: int(v) for k, v in eng.value_counts().to_dict().items()}
     except Exception:
         return {}
 
 
 def generate_summary_text(summary: Dict[str, Any], month_label: str) -> str:
-    """
-    Build a concise monthly summary strictly from the month-specific slice.
-
-    Expected summary keys (flexible layout supported):
-      - "by_status": {month_label: {status: count}} or {status: count}
-      - "by_issue_type": {month_label: {issue_type: count}} or {issue_type: count}
-      - "by_engineer": {month_label: {engineer: count}} or {engineer: count}
-      - "raw": pandas.DataFrame with a "month_label" column (optional, for accurate totals)
-    """
-
-    # Month-specific dictionaries (robust to different summary shapes)
+    # Month-scoped slices or recomputation
     by_issue_type_m = _month_slice(summary, "by_issue_type", month_label)
-    by_engineer_m = _month_slice(summary, "by_engineer", month_label)
+    by_engineer_m = _engineer_counts_from_raw(summary, month_label)  # ✅ per-month from raw
 
-    # 🔒 Status counts: ALWAYS prefer recomputing from 'raw' if available,
-    # to guarantee per-month numbers, even if 'by_status' is a global flat dict.
-    recomputed_status = _status_counts_from_raw(summary, month_label)
-    if recomputed_status:
-        by_status_m = recomputed_status
-    else:
+    # Status: prefer recomputed per-month
+    by_status_m = _status_counts_from_raw(summary, month_label)
+    if not by_status_m:
         by_status_m = _month_slice(summary, "by_status", month_label)
 
-    # Compute total:
-    # Prefer counting rows from summary["raw"] filtered by month_label (most accurate).
+    # Total issues for month
     total = 0
     raw_df = summary.get("raw")
     if raw_df is not None:

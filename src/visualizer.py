@@ -25,29 +25,16 @@ def ensure_dir(path: str) -> None:
 
 
 def _month_slice(summary: Dict[str, Any], key: str, month_label: str) -> Dict[str, int]:
-    """
-    Extract a per-month dictionary like {label: count} from a flexible summary structure.
-
-    Supports:
-      A) summary[key][month_label] == {item: count}
-      B) summary[month_label][key] == {item: count}
-      C) summary[key] == {item: count}  (already month specific)
-    """
-    # A) summary[key][month_label]
     if isinstance(summary.get(key), dict):
         inner = summary[key]
         if month_label in inner and isinstance(inner[month_label], dict):
             return inner[month_label]
-        # C) summary[key] already looks like a flat counts dict
-        if all(isinstance(v, (int, float)) for v in inner.values() or []):
+        if all(isinstance(v, (int, float)) for v in (inner.values() or [])):
             return inner
-
-    # B) summary[month_label][key]
     if month_label in summary and isinstance(summary[month_label], dict):
         maybe = summary[month_label].get(key)
         if isinstance(maybe, dict):
             return maybe
-
     return {}
 
 
@@ -112,7 +99,17 @@ def plot_engineer_workload(summary: Dict[str, Any], month_label: str) -> Optiona
     Engineer workload for a month (bar chart).
     Returns path to saved .png, or None if no data.
     """
-    counts = _month_slice(summary, "by_engineer", month_label)
+    # Prefer recomputed from raw if present
+    raw_df = summary.get("raw")
+    if raw_df is not None:
+        df_m = raw_df[raw_df["month_label"] == month_label]
+        if not df_m.empty:
+            counts = df_m["engineer"].astype(str).str.strip().value_counts().to_dict()
+        else:
+            counts = {}
+    else:
+        counts = _month_slice(summary, "by_engineer", month_label)
+
     if not counts:
         return None
 
@@ -137,12 +134,10 @@ def plot_daily_trend(df_raw: pd.DataFrame, month_label: str) -> Optional[str]:
     if df_raw is None or df_raw.empty:
         return None
 
-    # Filter this month
     df = df_raw[df_raw["month_label"] == month_label].copy()
     if df.empty:
         return None
 
-    # Ensure 'date' usable for grouping
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     daily = df.groupby(df["date"].dt.date).size().sort_index()
     if daily.empty:
