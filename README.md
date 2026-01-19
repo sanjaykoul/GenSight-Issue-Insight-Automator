@@ -26,20 +26,22 @@ Each Excel sheet must represent an entire month and follow names like:
 
 ---
 
+
 ## Required Columns
 
-| Column | Description |
-|--------|-------------|
-| Project Name | Project name |
-| Engineer Name | Support engineer |
-| Associate/Employee ID | User ID |
-| Associate/Employee Name | User name |
-| Issue Description | Summary of issue |
-| Start Date & Time | DD/MM/YYYY |
-| End Date & Time | DD/MM/YYYY |
-| Status | Open / Closed |
-| Request / Ticket ID | Ticket reference |
-| Remarks | Resolution details |
+| Column                  | Description                     |
+|-------------------------|---------------------------------|
+| Project Name            | Name of the project             |
+| Engineer Name           | Support engineer handling the issue |
+| Associate/Employee ID   | Unique ID of the user           |
+| Associate/Employee Name | Name of the user                |
+| Issue Description       | Brief summary of the issue      |
+| Start Date & Time       | Issue start (DD/MM/YYYY HH:MM)  |
+| End Date & Time         | Issue end (DD/MM/YYYY HH:MM)    |
+| Status                  | Current status (Open / Closed)  |
+| Request/Ticket ID       | Reference ticket number         |
+| Remarks                 | Additional notes / resolution    |
+``
 
 ---
 
