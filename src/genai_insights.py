@@ -6,10 +6,10 @@ Smarter per-month AI-like summary (rule-based):
 - True per-month totals (not combined)
 - Closed/Open + closure rate %
 - Top 3 issue types with %
-- Peak day & quiet day (using date that falls inside the month)
+- Peak day & quiet day
 - Busiest weekday
 - Month-over-Month change %
-- Actionable recommendations based on top category (incl. "Endpoint Compliance")
+- Actionable recommendations based on top category
 """
 
 from typing import Dict, Optional, Tuple
@@ -49,6 +49,10 @@ def _label_to_year_month(label: str) -> Optional[Tuple[int, int]]:
 
 
 def _prev_month_label(all_labels: list, current: str) -> Optional[str]:
+    """
+    Find the immediate previous month label from a list of labels like ['DEC2025','JAN2026',...].
+    """
+    # Sort labels by (year, month)
     parsed = []
     for lab in all_labels:
         ym = _label_to_year_month(lab)
@@ -56,7 +60,7 @@ def _prev_month_label(all_labels: list, current: str) -> Optional[str]:
             parsed.append((*ym, lab))  # (year, month, label)
     if not parsed:
         return None
-    parsed.sort()
+    parsed.sort()  # by year, then month
     labels_sorted = [p[2] for p in parsed]
     if current not in labels_sorted:
         return None
@@ -64,32 +68,17 @@ def _prev_month_label(all_labels: list, current: str) -> Optional[str]:
     return labels_sorted[idx - 1] if idx - 1 >= 0 else None
 
 
-def _pick_date_for_month(row: pd.Series, y: int, m: int):
-    """
-    Return a date from row that lies inside (y, m):
-      - Prefer 'end' if in (y, m),
-      - else 'start' if in (y, m),
-      - else None.
-    """
-    start = pd.to_datetime(row.get("start"), errors="coerce")
-    end = pd.to_datetime(row.get("end"), errors="coerce")
-    if pd.notna(end) and end.year == y and end.month == m:
-        return end.date()
-    if pd.notna(start) and start.year == y and start.month == m:
-        return start.date()
-    return None
-
-
 def generate_summary_text(summary: Dict, month_label: str) -> str:
     raw = summary.get("raw")
     if raw is None or raw.empty:
         return f"No data available for {month_label}."
 
+    # ---- Filter to the requested month
     sub = raw[raw["month_label"] == month_label].copy()
     if sub.empty:
         return f"No data available for {month_label}."
 
-    # Normalize fields
+    # ---- Normalize fields
     status = sub["status"].astype(str).str.strip().str.title() if "status" in sub.columns else pd.Series(dtype=str)
     engineer = sub["engineer"].astype(str).str.strip() if "engineer" in sub.columns else pd.Series(dtype=str)
     if "issue_type" not in sub.columns:
@@ -104,33 +93,32 @@ def generate_summary_text(summary: Dict, month_label: str) -> str:
     open_ = int(by_status.get("Open", 0))
     closure_rate = (closed * 100 / total) if total else 0
 
-    # Peak/quiet day restricted to dates that lie inside the month_label
-    peak_str, quiet_str, busiest_weekday_str = "N/A", "N/A", "N/A"
-    ym = _label_to_year_month(month_label)
-    if ym and ("start" in sub.columns or "end" in sub.columns):
-        yy, mm = ym
-        month_dates = sub.apply(lambda r: _pick_date_for_month(r, yy, mm), axis=1)
-        md = pd.to_datetime(month_dates.dropna(), errors="coerce")
-        if not md.empty:
-            daily = md.value_counts().sort_index()
-            if not daily.empty:
-                d_desc = daily.sort_values(ascending=False)
-                peak_day = d_desc.index[0].date()
-                peak_val = int(d_desc.iloc[0])
-                peak_str = f"{peak_day} ({peak_val})"
-                d_min = daily[daily > 0].sort_values()
-                if not d_min.empty:
-                    q_day = d_min.index[0].date()
-                    q_val = int(d_min.iloc[0])
-                    quiet_str = f"{q_day} ({q_val})"
-            wcounts = md.dt.day_name().value_counts()
-            if not wcounts.empty:
-                busiest_weekday_str = f"{wcounts.index[0]} ({int(wcounts.iloc[0])})"
+    # ---- Peak/quiet day (by date)
+    peak_str = "N/A"
+    quiet_str = "N/A"
+    busiest_weekday_str = "N/A"
+    if "date" in sub.columns:
+        daily = sub.groupby("date").size().sort_values(ascending=False)
+        if not daily.empty:
+            peak_day = daily.index[0]
+            peak_val = int(daily.iloc[0])
+            peak_str = f"{peak_day} ({peak_val})"
+            # min but non-zero to avoid N/A if zeros exist
+            daily_pos = daily[daily > 0].sort_values()
+            if not daily_pos.empty:
+                q_day, q_val = daily_pos.index[0], int(daily_pos.iloc[0])
+                quiet_str = f"{q_day} ({q_val})"
 
-    # Top 3 issue types with %
+        # Weekday pattern
+        dd = pd.to_datetime(sub["date"])
+        wcounts = dd.dt.day_name().value_counts()
+        if not wcounts.empty:
+            busiest_weekday_str = f"{wcounts.index[0]} ({int(wcounts.iloc[0])})"
+
+    # ---- Top 3 issue types (with %)
     top3_issue_types = _top_n_with_pct(by_issue_type, 3)
 
-    # MoM change
+    # ---- MoM change
     mom_change_str = "N/A"
     by_month_df = summary.get("by_month")
     if by_month_df is not None and not by_month_df.empty:
@@ -149,25 +137,26 @@ def generate_summary_text(summary: Dict, month_label: str) -> str:
         elif cur_count is not None and prev_count is None:
             mom_change_str = "No previous month available for comparison"
 
-    # Recommendations (note the explicit Endpoint Compliance label)
+    # ---- Recommendations (simple rules based on top issue type)
     recos = []
     if by_issue_type:
         dominant = max(by_issue_type.items(), key=lambda x: x[1])[0]
-        if dominant.lower() == "endpoint compliance":
-            recos.append("Validate agents (EDR/DLP/Tanium/PMC), fix hostnames, and automate remediation scripts.")
+        if dominant.lower() == "endpoint":
+            recos.append("Validate compliance agents (EDR/DLP/Tanium/PMC) and automate remediation scripts.")
         elif dominant.lower() == "citrix":
-            recos.append("Coordinate with Citrix/Network for URL reachability and client reliability checks.")
+            recos.append("Coordinate with Citrix/Network team for URL reachability and client reliability checks.")
         elif dominant.lower() in ("access/password", "access", "password"):
-            recos.append("Promote SSPR and password hygiene; publish quick guides to reduce resets.")
+            recos.append("Promote SSPR and password hygiene; share quick guides to reduce resets.")
         elif dominant.lower() == "mfa":
             recos.append("Push MFA enrollment/notification troubleshooting tips; preemptive user comms.")
         else:
             recos.append("Review top categories and publish targeted how-to guides for recurring issues.")
     if closure_rate < 95:
         recos.append("Improve closure rate with SOPs and triage playbooks.")
-    if peak_str != "N/A":
+    if isinstance(peak_str, str) and peak_str != "N/A":
         recos.append("Staff peak days proactively to avoid backlog.")
 
+    # ---- Build the narrative
     parts = [
         f"Monthly summary for {month_label}:",
         f"• Total issues: {total}  |  Closed: {closed}  |  Open: {open_}  |  Closure rate: {closure_rate:.1f}%",
@@ -180,4 +169,3 @@ def generate_summary_text(summary: Dict, month_label: str) -> str:
 
     parts.append("• See attached charts for daily trend, issue mix, weekday pattern, and workload.")
     return "\n".join(parts)
-    

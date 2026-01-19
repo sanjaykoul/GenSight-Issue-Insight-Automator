@@ -1,6 +1,7 @@
 
-# test_runner.py
+# test_runner_genai.py
 from src.data_loader import load_monthly_tracker
+from src.classifier_genai import HybridClassifier
 from src.aggregator import generate_monthly_summary
 from src.visualizer import (
     plot_issue_distribution,
@@ -14,10 +15,16 @@ from src.report_generator import generate_pdf_report, generate_ppt_report
 from src.genai_insights import generate_summary_text
 
 EXCEL_PATH = "EmblemHealth_Monthly_Productivity_Tracker.xlsx"
-LOGO_PATH = None  # e.g., "assets/logo.png" if you have one
+LOGO_PATH = None  # e.g., "assets/logo.png"
 
 print("Loading Excel ...")
 df = load_monthly_tracker(EXCEL_PATH)
+
+print("Classifying issues with Hybrid (keywords + GenAI) ...")
+hybrid = HybridClassifier(taxonomy_path="config/taxonomy.yaml")
+df = hybrid.classify_df(df, text_cols=["issue", "remarks"])
+
+# Now aggregate with these smarter labels
 summary = generate_monthly_summary(df)
 months = sorted(df["month_label"].unique())
 
@@ -37,7 +44,7 @@ for m in months:
     # Smart per-month AI text
     ai_text = generate_summary_text(summary, m)
 
-    # Reports (MoM chart is auto-added inside report_generator)
+    # Reports
     pdf_path = generate_pdf_report(summary, m, charts=charts, ai_text=ai_text, logo_path=LOGO_PATH, include_mom=True)
     ppt_path = generate_ppt_report(summary, m, charts=charts, ai_text=ai_text, logo_path=LOGO_PATH, include_mom=True)
 

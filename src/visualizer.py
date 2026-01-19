@@ -7,7 +7,7 @@ Modern, per-month charts for GenSight-Issue-Insight-Automator.
 Highlights
 ----------
 - All charts are strictly per-month (month_label)
-- Clean aesthetics; no seaborn/mpl deprecation warnings
+- Clean aesthetics; no seaborn deprecation warnings
 - Value labels on bars
 - Rolling average line on daily trend
 - Weekday trend chart
@@ -20,11 +20,12 @@ Images saved under: reports/<MONTH>/charts/
 
 import os
 from typing import Dict, Optional, List
+import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-plt.style.use("seaborn-v0_8-whitegrid")  # a stable seaborn-like style via matplotlib
+plt.style.use("seaborn-v0_8-whitegrid")  # stable seaborn style through matplotlib
 
 
 # ----------------------------- #
@@ -56,19 +57,23 @@ def _colors_main() -> List[str]:
     ]
 
 
-def _annotate_bars(ax, fmt="{:,.0f}"):
-    """Add value labels above bars or to the right for horizontal bars."""
+def _annotate_bars(ax, fmt="{:,.0f}", fontsize=10, offset=0.01):
+    """Add value labels above bars (or to the right for horizontal bars)."""
     for p in ax.patches:
-        width, height = p.get_width(), p.get_height()
-        # Horizontal vs vertical bar detection
-        if width > height:
-            x = p.get_x() + width
-            y = p.get_y() + height / 2
-            ax.text(x + (ax.get_xlim()[1] * 0.01), y, fmt.format(width), va="center", ha="left", fontsize=10)
+        if p.get_width() == 0 and p.get_height() == 0:
+            continue
+        if p.get_width() > p.get_height():
+            # horizontal bar
+            x = p.get_x() + p.get_width()
+            y = p.get_y() + p.get_height() / 2
+            ax.text(x + ax.get_xlim()[1] * offset, y, fmt.format(p.get_width()),
+                    va="center", ha="left", fontsize=fontsize)
         else:
+            # vertical bar
             x = p.get_x() + p.get_width() / 2
-            y = p.get_y() + height
-            ax.text(x, y + (ax.get_ylim()[1] * 0.01), fmt.format(height), va="bottom", ha="center", fontsize=10)
+            y = p.get_y() + p.get_height()
+            ax.text(x, y + ax.get_ylim()[1] * offset, fmt.format(p.get_height()),
+                    va="bottom", ha="center", fontsize=fontsize)
 
 
 def _subset_month_df(summary: Dict, month_label: str) -> pd.DataFrame:
@@ -102,13 +107,11 @@ def plot_issue_distribution(summary: Dict, month_label: str) -> Optional[str]:
 
     fig, ax = plt.subplots(figsize=(8, 5))
     colors = _colors_main()
-    x = np.arange(len(counts))
-    ax.bar(x, counts.values, color=colors[: len(counts)])
+    bars = ax.bar(counts.index, counts.values, color=colors[: len(counts)])
     ax.set_title(f"Issue Type Distribution — {month_label}")
     ax.set_xlabel("Issue Type")
     ax.set_ylabel("Count")
     ax.set_ylim(0, max(counts.values) * 1.15)
-    ax.set_xticks(x)
     ax.set_xticklabels(counts.index, rotation=15, ha="right")
 
     _annotate_bars(ax)
@@ -136,7 +139,7 @@ def plot_engineer_workload(summary: Dict, month_label: str, top_n: int = 10) -> 
     fig, ax = plt.subplots(figsize=(9, 5.5))
     colors = _colors_main()
     y = np.arange(len(counts.index))
-    ax.barh(y, counts.values, color=colors[: len(counts)])
+    bars = ax.barh(y, counts.values, color=colors[: len(counts)])
     ax.set_yticks(y)
     ax.set_yticklabels(counts.index)
     ax.invert_yaxis()  # largest on top
@@ -158,43 +161,13 @@ def plot_engineer_workload(summary: Dict, month_label: str, top_n: int = 10) -> 
 def plot_daily_trend(df: pd.DataFrame, month_label: str) -> Optional[str]:
     """
     Daily issues (bar) + 3‑day rolling average (line) for a specific month.
-    Uses a date that falls INSIDE the requested month:
-    - prefer 'end' if its month/year match, else 'start'.
     """
     folder = ensure_folder(month_label)
     sub = df[df["month_label"] == month_label].copy()
-    if sub.empty:
+    if sub.empty or "date" not in sub.columns:
         return None
 
-    # Helper to convert label -> (year, month)
-    def _label_to_year_month(label: str):
-        import re
-        m = re.match(r"^([A-Z]{3})(\d{4})$", str(label).upper().strip())
-        if not m:
-            return None
-        mon_map = {"JAN":1,"FEB":2,"MAR":3,"APR":4,"MAY":5,"JUN":6,"JUL":7,"AUG":8,"SEP":9,"OCT":10,"NOV":11,"DEC":12}
-        return int(m.group(2)), mon_map[m.group(1)]
-
-    ym = _label_to_year_month(month_label)
-    if not ym:
-        return None
-    yy, mm = ym
-
-    # Pick a date inside (yy, mm) per row
-    def _pick(row):
-        s = pd.to_datetime(row.get("start"), errors="coerce")
-        e = pd.to_datetime(row.get("end"), errors="coerce")
-        if pd.notna(e) and e.year == yy and e.month == mm:
-            return e.date()
-        if pd.notna(s) and s.year == yy and s.month == mm:
-            return s.date()
-        return None
-
-    dates_in_month = sub.apply(_pick, axis=1).dropna()
-    if dates_in_month.empty:
-        return None
-
-    series = pd.Series(dates_in_month).value_counts().sort_index()
+    series = sub.groupby("date").size().sort_index()
     rolling = series.rolling(window=min(3, len(series)), min_periods=1).mean()
 
     fig, ax = plt.subplots(figsize=(10.5, 4.8))
@@ -252,10 +225,11 @@ def plot_weekday_trend(summary: Dict, month_label: str) -> Optional[str]:
     dd = pd.to_datetime(sub["date"])
     weekday = dd.dt.weekday  # Monday=0
     counts = weekday.value_counts().reindex(range(7), fill_value=0)
+
     labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     fig, ax = plt.subplots(figsize=(7.5, 4.2))
-    ax.bar(labels, counts.values, color="#72B7B2")
+    bars = ax.bar(labels, counts.values, color="#72B7B2")
     ax.set_title(f"Weekday Trend — {month_label}")
     ax.set_xlabel("Weekday")
     ax.set_ylabel("Issues")
@@ -292,22 +266,15 @@ def plot_pareto_issue_types(summary: Dict, month_label: str) -> Optional[str]:
     fig, ax = plt.subplots(figsize=(9.5, 5.2))
     color_bar = "#4C78A8"
     color_line = "#E45756"
-
-    x = np.arange(len(counts))
-    ax.bar(x, counts.values, color=color_bar, alpha=0.9)
-
+    ax.bar(counts.index, counts.values, color=color_bar, alpha=0.9)
     ax2 = ax.twinx()
-    ax2.plot(x, cum.values, color=color_line, marker="o", linewidth=2)
+    ax2.plot(counts.index, cum.values, color=color_line, marker="o", linewidth=2)
 
     ax.set_title(f"Issue Types Pareto — {month_label}")
     ax.set_xlabel("Issue Type")
     ax.set_ylabel("Count")
     ax2.set_ylabel("Cumulative %")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(counts.index)
-    plt.setp(ax.get_xticklabels(), rotation=15, ha="right")
-
+    ax.set_xticklabels(counts.index, rotation=15, ha="right")
     ax.set_ylim(0, max(counts.values) * 1.2)
     ax2.set_ylim(0, 110)
     ax2.axhline(80, color="#9C755F", linestyle="--", linewidth=1)  # 80/20 reference
