@@ -1,0 +1,7 @@
+
+pandas
+matplotlib
+seaborn
+python-pptx
+reportlab
+openpyxl
